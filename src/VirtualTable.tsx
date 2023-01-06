@@ -94,6 +94,11 @@ function VirtualTable<DataType extends Record<string, any>>(
         height={height}
         rowCount={rawData.length}
         width={tableWidth}
+        onScroll={({ scrollLeft }) => {
+          onScroll({
+            scrollLeft,
+          })
+        }}
       >
         {VCell}
       </Grid>
@@ -108,7 +113,7 @@ function VirtualTable<DataType extends Record<string, any>>(
       <ResizeObserver
         onResize={({ width }) => {
           console.log('setTableWidth', width)
-          setTableWidth(width)
+          // setTableWidth(width)
         }}
       >
         <FormWrapper className='fff'>
