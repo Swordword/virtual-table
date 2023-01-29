@@ -1,4 +1,4 @@
-import React, { useImperativeHandle, useRef, useState } from 'react'
+import React, { useEffect, useImperativeHandle, useRef, useState } from 'react'
 
 import type { FormInstance, TableProps } from 'antd'
 import { Form, Table } from 'antd'
@@ -8,35 +8,48 @@ import {
 } from 'react-window'
 import ResizeObserver from 'rc-resize-observer'
 import './virtual-table.css'
-
-export declare type CustomizeScrollBody<RecordType> = (
-  data: readonly RecordType[],
-  info: {
-    scrollbarSize: number
-    ref: React.Ref<{
-      scrollLeft: number
-    }>
-    onScroll: (info: {
-      currentTarget?: HTMLElement
-      scrollLeft?: number
-    }) => void
-  }
-) => React.ReactNode
+import { isNumber } from 'lodash'
 
 type RCProps = {
   children?: React.ReactNode
 }
 
+type CustomizeScrollBodyRawData<RecordType> = readonly RecordType[]
+
+type CustomizeScrollBodyInfo = {
+  scrollbarSize: number
+  ref: React.Ref<{
+    scrollLeft: number
+  }>
+  onScroll: (info: { currentTarget?: HTMLElement; scrollLeft?: number }) => void
+}
+
+type CustomizeScrollBodyContext<RecordType> = {
+  data: CustomizeScrollBodyRawData<RecordType>
+  info: CustomizeScrollBodyInfo
+}
+
+export declare type CustomizeScrollBody<RecordType> = (
+  rawData: CustomizeScrollBodyRawData<RecordType>,
+  info: CustomizeScrollBodyInfo
+) => React.ReactNode
+
 interface VTableProps<T> extends TableProps<T> {
-  height: number
+  /** 编辑 formRef */
   editFormRef?: React.Ref<FormInstance>
   rowHeight?: number
   itemRender?: () => React.ReactNode
+  extendRender?: () => React.ReactNode
+  scroll: {
+    x?: number | true | string;
+    y: number
+  }
 }
 
-const VTableContext = React.createContext<CustomizeScrollBody<object>>({})
+const VTableContext = React.createContext<CustomizeScrollBodyContext<object>>(
+  {} as CustomizeScrollBodyContext<object>
+)
 
-const DEFAULT_HEIGHT = 900
 const DEFAULT_ROW_HEIGHT = 30
 
 function VirtualTable<DataType extends Record<string, any>>(
@@ -44,10 +57,17 @@ function VirtualTable<DataType extends Record<string, any>>(
 ) {
   const {
     columns,
-    height = DEFAULT_HEIGHT,
+    scroll,
     rowHeight = DEFAULT_ROW_HEIGHT,
     editFormRef: propEditFormRef,
+    ...rest
   } = props
+
+  useEffect(() => {
+    if (!scroll.y || !isNumber(scroll.y)) {
+      console.error('scroll.y need provided and scroll.y need to be a number')
+    }
+  }, [])
 
   const editFormRef = useRef<FormInstance>()
 
@@ -55,7 +75,24 @@ function VirtualTable<DataType extends Record<string, any>>(
     useImperativeHandle(propEditFormRef, () => ({ ...editFormRef.current }))
   }
 
+  // Table ref
+  const gridRef = useRef<any>()
+
+  // Gird outer container element
+  const gridOutRef = useRef<any>()
+
   const [tableWidth, setTableWidth] = useState(1920)
+
+  const resetVirtualGrid = () => {
+    if (gridRef.current) {
+      gridRef.current.resetAfterIndices({
+        columnIndex: 0,
+        shouldForceUpdate: true,
+      })
+    }
+  }
+
+  useEffect(() => resetVirtualGrid, [tableWidth])
 
   const defaultItemRender = () => {}
 
@@ -81,27 +118,36 @@ function VirtualTable<DataType extends Record<string, any>>(
     { onScroll, ref, scrollbarSize }
   ) => {
     return (
-      <Grid
-        className='aaa'
-        columnCount={columns?.length ?? 0}
-        columnWidth={(index) => {
-          const { width } = columns[index]
-          return index === columns!.length - 1
-            ? width - scrollbarSize - 1
-            : width
-        }}
-        rowHeight={() => rowHeight}
-        height={height}
-        rowCount={rawData.length}
-        width={tableWidth}
-        onScroll={({ scrollLeft }) => {
-          onScroll({
-            scrollLeft,
-          })
+      <ResizeObserver
+        onResize={({ width }) => {
+          console.log('setTableWidth', width)
+          setTableWidth(width)
         }}
       >
-        {VCell}
-      </Grid>
+        <Grid
+          ref={gridRef}
+          outerRef={gridOutRef}
+          columnCount={columns?.length ?? 0}
+          columnWidth={(index) => {
+            const { width } = columns[index]
+            let realWidth = Number(width)
+            return index === columns!.length - 1
+              ? realWidth - scrollbarSize - 1
+              : realWidth
+          }}
+          rowHeight={() => rowHeight}
+          height={scroll.y}
+          rowCount={rawData.length}
+          width={tableWidth}
+          onScroll={({ scrollLeft }) => {
+            onScroll({
+              scrollLeft,
+            })
+          }}
+        >
+          {VCell}
+        </Grid>
+      </ResizeObserver>
     )
   }
 
@@ -110,32 +156,32 @@ function VirtualTable<DataType extends Record<string, any>>(
     { onScroll, ref, scrollbarSize }
   ) => {
     return (
-      <ResizeObserver
-        onResize={({ width }) => {
-          console.log('setTableWidth', width)
-          // setTableWidth(width)
+      <VTableContext.Provider
+        value={{
+          data: rawData,
+          info: { onScroll, ref, scrollbarSize },
         }}
       >
-        <FormWrapper className='fff'>
+        <FormWrapper>
           {VTableBody(rawData, { onScroll, ref, scrollbarSize })}
         </FormWrapper>
-      </ResizeObserver>
+      </VTableContext.Provider>
     )
   }
 
   return (
-    <Table
-      {...props}
-      scroll={{
-        x: 'max-content',
-        y: height,
-      }}
-      rowKey='id'
-      components={{
-        body: VTable,
-      }}
-      pagination={false}
-    />
+    <>
+      <Table
+        {...rest}
+        rowKey='id'
+        columns={columns}
+        scroll={scroll}
+        components={{
+          body: VTable,
+        }}
+        pagination={false}
+      />
+    </>
   )
 }
 
