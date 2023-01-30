@@ -7,8 +7,9 @@ import {
   VariableSizeList as List,
 } from 'react-window'
 import ResizeObserver from 'rc-resize-observer'
-import './virtual-table.css'
+import './virtualTable.less'
 import { isNumber } from 'lodash'
+import { ColumnGroupType, ColumnType } from 'antd/lib/table'
 
 type RCProps = {
   children?: React.ReactNode
@@ -29,6 +30,14 @@ type CustomizeScrollBodyContext<RecordType> = {
   info: CustomizeScrollBodyInfo
 }
 
+type VColumnType<RecordType> = (
+  | ColumnGroupType<RecordType>
+  | ColumnType<RecordType>
+) & {
+  /** 在table中隐藏列 */
+  hideInTable?: boolean
+}
+
 export declare type CustomizeScrollBody<RecordType> = (
   rawData: CustomizeScrollBodyRawData<RecordType>,
   info: CustomizeScrollBodyInfo
@@ -43,7 +52,8 @@ interface VTableProps<T> extends TableProps<T> {
   scroll: {
     x?: number | true | string;
     y: number
-  }
+  },
+  columns: VColumnType<T>[]
 }
 
 const VTableContext = React.createContext<CustomizeScrollBodyContext<object>>(
