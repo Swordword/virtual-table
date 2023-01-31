@@ -8,12 +8,14 @@ import React, {
 
 import type { FormInstance, TableProps } from 'antd'
 import { Form, Table } from 'antd'
+
+import { getColumnKey, getColumnPos } from 'antd/es/table/util'
 import {
   VariableSizeGrid as Grid,
   VariableSizeList as List,
 } from 'react-window'
 import ResizeObserver from 'rc-resize-observer'
-import { isNumber } from 'lodash'
+import { indexOf, isFunction, isNumber } from 'lodash'
 import { ColumnGroupType, ColumnType } from 'antd/lib/table'
 import './virtualTable.less'
 
@@ -41,10 +43,7 @@ type CustomizeScrollBodyContext<RecordType> = {
   info: CustomizeScrollBodyInfo
 }
 
-type VColumnType<RecordType> = (
-  | ColumnGroupType<RecordType>
-  | ColumnType<RecordType>
-) & {
+type VColumnType<RecordType> = ColumnType<RecordType> & {
   /** 在table中隐藏列 */
   hideInTable?: boolean
 }
@@ -60,7 +59,7 @@ interface VTableProps<T> extends TableProps<T> {
   rowHeight?: number
   itemRender?: () => React.ReactNode
   extendRender?: () => React.ReactNode
-  /** 编辑行 key */
+  /** TODO: 编辑行 key */
   editableKeys?: React.Key[]
   scroll: {
     x?: number | true | string
@@ -79,16 +78,18 @@ function VirtualTable<DataType extends Record<string, any>>(
   props: VTableProps<DataType>
 ) {
   const {
+    rowKey,
     columns,
     scroll,
     rowHeight = DEFAULT_ROW_HEIGHT,
     editFormRef: propEditFormRef,
     dataSource: rawData,
+    editableKeys = [],
     ...rest
   } = props
 
   const mergedColumns = columns.filter((column) => !column.hideInTable)
-  // const totalTableWidth =
+
   const fixedLeftColumns = useMemo(
     () => columns.filter((column) => column.fixed === 'left'),
     [columns]
@@ -134,9 +135,28 @@ function VirtualTable<DataType extends Record<string, any>>(
   const VCell = ({ columnIndex, rowIndex, style }) => {
     const targetColumn = columns[columnIndex]
     const targetData = rawData[rowIndex]
+    const ViewItem = () => {
+      return isFunction(targetColumn.render)
+        ? targetColumn.render(
+            targetData[getColumnKey(targetColumn, '')],
+            targetData,
+            rowIndex
+          )
+        : targetData[getColumnKey(targetColumn, '')]
+    }
+    // TODO: edit
+    const EditItem = () => {
+      return <>edit</>
+    }
     return (
-      <div style={style}>
-        {rowIndex} ,{columnIndex}
+      <div className='virtual-table-cell' style={style}>
+        {editableKeys.includes(
+          targetData[isFunction(rowKey) ? rowKey(targetData, rowIndex) : rowKey]
+        ) ? (
+          <EditItem />
+        ) : (
+          <ViewItem />
+        )}
       </div>
     )
   }
@@ -162,7 +182,6 @@ function VirtualTable<DataType extends Record<string, any>>(
         columnWidth={(index) => {
           const { width } = columns[index]
           let realWidth = Number(width)
-          console.log('realWidth', realWidth)
           return index === columns!.length - 1
             ? realWidth - scrollbarSize - 1
             : realWidth
@@ -182,8 +201,85 @@ function VirtualTable<DataType extends Record<string, any>>(
     )
   }
 
-  const renderFixedBody = (fixedDirection: fixedEnum) => {
-    return <></>
+  const FixedRow = ({
+    rowIndex,
+    style,
+    fixed,
+  }: {
+    rowIndex: number
+    style: React.CSSProperties
+    fixed: fixedEnum
+  }) => {
+    const Styles = {
+      backgroundColor: '#fff',
+      display: 'flex',
+    } as const
+    const fixedColumns =
+      fixed === fixedEnum.left ? fixedLeftColumns : fixedRightColumns
+    return (
+      <div
+        style={{
+          ...style,
+          ...Styles,
+        }}
+      >
+        {fixedColumns.map((column, index) => {
+          const Styles = {
+            width: column.width,
+          }
+          const columnIndex = indexOf(columns, column)
+          return (
+            <VCell
+              key={columnIndex}
+              rowIndex={rowIndex}
+              columnIndex={columnIndex}
+              style={Styles}
+            ></VCell>
+          )
+        })}
+      </div>
+    )
+  }
+
+  const renderFixedBody = (fixed: fixedEnum) => {
+    const fixedColumns =
+      fixed === fixedEnum.right ? fixedRightColumns : fixedLeftColumns
+    /** fixed 总宽度 */
+    const totalFixedWidth = fixedColumns.reduce((prev, next) => {
+      const increaseWidth = prev + Number(next.width)
+      return increaseWidth
+    }, 0)
+    const Styles: React.CSSProperties = {
+      position: 'absolute',
+      left: fixed === fixedEnum.left ? 0 : null,
+      right: fixed === fixedEnum.right ? 0 : null,
+      top: 0,
+      width: totalFixedWidth,
+    }
+
+    return (
+      <div className='virtual-table-fixed-body' style={Styles}>
+        <List
+          height={scroll?.y - 12} // 去除底部滚动条的高度
+          style={{
+            overflow: 'hidden',
+          }}
+          itemCount={rawData.length}
+          itemSize={() => rowHeight}
+          width={totalFixedWidth}
+        >
+          {({ index: rowIndex, style }) => {
+            return (
+              <FixedRow
+                fixed={fixed}
+                rowIndex={rowIndex}
+                style={style}
+              ></FixedRow>
+            )
+          }}
+        </List>
+      </div>
+    )
   }
 
   const VTableBody: CustomizeScrollBody<DataType> = (
@@ -207,15 +303,15 @@ function VirtualTable<DataType extends Record<string, any>>(
           }}
         >
           <div className='virtual-table'>
-            <FormWrapper>
-              {renderNormalBody(rawData, { onScroll, ref, scrollbarSize })}
-              {fixedLeftColumns.length > 0
-                ? renderFixedBody(fixedEnum.left)
-                : null}
-              {fixedRightColumns.length > 0
-                ? renderFixedBody(fixedEnum.right)
-                : null}
-            </FormWrapper>
+            {/* <FormWrapper> */}
+            {renderNormalBody(rawData, { onScroll, ref, scrollbarSize })}
+            {fixedLeftColumns.length > 0
+              ? renderFixedBody(fixedEnum.left)
+              : null}
+            {fixedRightColumns.length > 0
+              ? renderFixedBody(fixedEnum.right)
+              : null}
+            {/* </FormWrapper> */}
           </div>
         </ResizeObserver>
       </VTableContext.Provider>
